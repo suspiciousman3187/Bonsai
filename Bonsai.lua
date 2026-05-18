@@ -71,6 +71,7 @@ local loop_template           = nil
 local phase_reminders_pending = {}
 local fert_succeeded          = false
 local fert_failed             = false
+local plant_failed            = false
 
 local function chat(msg) windower.add_to_chat(207, '[Bonsai] ' .. msg) end
 local function err(msg)  windower.add_to_chat(123, '[Bonsai] ' .. msg) end
@@ -438,17 +439,26 @@ windower.register_event('prerender', function()
             pending_phase    = table.remove(phase_chain, 1)
             -- Adjust wait time if any fertilize failed
             if pending_phase.dynamic_delay and USE_FERTILIZER then
-                if fert_failed then
+                if plant_failed then
+                    chat('Out of Revival Roots - stopping loop.')
+                    reset_all()
+                    return
+                elseif fert_failed then
                     chat('Fertilize failed on one or more furrows - falling back to full grow time (61 min).')
                     pending_phase.pre_delay = FURROW_HARVEST_WAIT_SECONDS
                 else
                     chat('All furrows fertilized! Harvest in 30 min.')
                 end
+            elseif pending_phase.dynamic_delay and plant_failed then
+                chat('Out of Revival Roots - stopping loop.')
+                reset_all()
+                return
             end
             phase_wait_until = os.clock() + (pending_phase.pre_delay or 0)
             -- Reset fert trackers for next cycle
             fert_succeeded = false
             fert_failed = false
+            plant_failed = false
             phase_reminders_pending = {}
             if pending_phase.reminders then
                 for _, r in ipairs(pending_phase.reminders) do
@@ -511,6 +521,8 @@ windower.register_event('prerender', function()
                         current_npc.name, tostring(why), t.item_id))
                     if t.item_id == MIRACLE_MULCH_ITEM_ID then
                         fert_failed = true
+                    elseif t.item_id == REVIVAL_ROOT_ITEM_ID then
+                        plant_failed = true
                     end
                     go_to_cooldown()
                     return
@@ -587,6 +599,16 @@ windower.register_event('prerender', function()
         local plan = phase.plan or phase.build_plan() or {}
         if #plan == 0 then
             err(string.format('Phase "%s": no targets, skipping.', phase.label or '?'))
+            current_plan    = {}
+            plan_index      = 1
+            cycle_end_index = 0
+            set_state(STATE_FIND_NEXT)
+            return
+        end
+        -- Skip fertilize phase if planting failed
+        if phase.label == 'Fertilize furrows' and plant_failed then
+            chat('Skipping fertilize - planting failed on one or more furrows.')
+            fert_failed = true
             current_plan    = {}
             plan_index      = 1
             cycle_end_index = 0
