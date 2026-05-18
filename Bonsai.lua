@@ -28,9 +28,13 @@ local FURROW_NAME_PREFIX          = 'Garden Furrow'
 local FURROW_PLANT_OPT            = 16
 local FURROW_HARVEST_OPT          = 18
 local FURROW_HARVEST_WAIT_SECONDS = 61 * 60
+local FURROW_FERT_WAIT_SECONDS    = 30 * 60
 local FURROW_REST_SECONDS         = 10
 local FURROW_REMINDER_SECONDS     = { 45*60, 30*60, 15*60, 5*60 }
 local REVIVAL_ROOT_ITEM_ID        = 940
+local MIRACLE_MULCH_ITEM_ID       = 8971
+local FURROW_FERTILIZE_OPT        = 16
+local USE_FERTILIZER              = false
 
 local WARP_TO_REARING_GROUNDS = {
     kind='warp', mode='warp', name_prefix='Chacharoon',
@@ -219,6 +223,20 @@ local function build_furrow_harvest_plan()
             index = f.index,
             opt   = FURROW_HARVEST_OPT,
             mode  = 'pet',
+        }
+    end
+    return plan
+end
+
+local function build_furrow_fertilize_plan()
+    local plan = {}
+    for _, f in ipairs(find_all_furrows()) do
+        plan[#plan+1] = {
+            kind  = 'furrow',
+            index = f.index,
+            opt   = FURROW_FERTILIZE_OPT,
+            mode  = 'single',
+            trade = { item_id = MIRACLE_MULCH_ITEM_ID, count = 1 },
         }
     end
     return plan
@@ -731,14 +749,24 @@ windower.register_event('addon command', function(cmd, ...)
             end
         elseif sub == 'start' then
             local mode_arg = args[2]
+            local fert_arg = args[3] or args[2]
             local start_with_harvest
             if mode_arg == nil or mode_arg == '' or mode_arg == '1' then
                 start_with_harvest = false
             elseif mode_arg == '2' then
                 start_with_harvest = true
+            elseif mode_arg == 'fert' or mode_arg == 'fertilize' then
+                start_with_harvest = false
+                USE_FERTILIZER = true
             else
-                err('Usage: //bon furrow start [1|2]   (1 = plant first [default], 2 = harvest first)')
+                err('Usage: //bon furrow start [1|2] [fert]   (1 = plant first [default], 2 = harvest first, fert = use Miracle Mulch)')
                 return
+            end
+            -- Check for fert as second arg
+            if fert_arg == 'fert' or fert_arg == 'fertilize' then
+                USE_FERTILIZER = true
+            elseif mode_arg ~= 'fert' and mode_arg ~= 'fertilize' then
+                USE_FERTILIZER = false
             end
 
             local initial = start_with_harvest
@@ -765,9 +793,10 @@ windower.register_event('addon command', function(cmd, ...)
             chat(string.format('Inventory has %d Revival Root(s); %d furrow(s) found.',
                 roots, #initial))
 
-            local plant_phase   = { label='Plant furrows',   build_plan=build_furrow_plant_plan,   pre_delay=0 }
+            local plant_phase   = { label='Plant furrows',      build_plan=build_furrow_plant_plan,      pre_delay=0 }
+            local fert_phase    = { label='Fertilize furrows',  build_plan=build_furrow_fertilize_plan, pre_delay=5 }
             local wait_phase    = { label='Furrows growing',
-                                    pre_delay = FURROW_HARVEST_WAIT_SECONDS,
+                                    pre_delay = USE_FERTILIZER and FURROW_FERT_WAIT_SECONDS or FURROW_HARVEST_WAIT_SECONDS,
                                     reminders = FURROW_REMINDER_SECONDS }
             local harvest_phase = { label='Harvest furrows', build_plan=build_furrow_harvest_plan, pre_delay=0 }
             local rest_phase    = { label=string.format('%d second rest between cycles', FURROW_REST_SECONDS),
@@ -776,16 +805,32 @@ windower.register_event('addon command', function(cmd, ...)
             local initial_chain
             local start_label
             if start_with_harvest then
-                initial_chain = { rest_phase, plant_phase, wait_phase, harvest_phase }
-                start_label   = string.format('Furrow loop start (harvest first): %d furrow(s), harvest -> rest -> plant -> wait -> repeat',
-                                              #initial)
+                if USE_FERTILIZER then
+                    initial_chain = { rest_phase, plant_phase, fert_phase, wait_phase, harvest_phase }
+                    start_label   = string.format('Furrow loop start (harvest first): %d furrow(s), harvest -> rest -> plant -> fertilize -> wait -> repeat',
+                                                  #initial)
+                else
+                    initial_chain = { rest_phase, plant_phase, wait_phase, harvest_phase }
+                    start_label   = string.format('Furrow loop start (harvest first): %d furrow(s), harvest -> rest -> plant -> wait -> repeat',
+                                                  #initial)
+                end
             else
-                initial_chain = { wait_phase, harvest_phase }
-                start_label   = string.format('Furrow loop start: %d furrow(s), plant -> wait -> harvest -> repeat',
-                                              #initial)
+                if USE_FERTILIZER then
+                    initial_chain = { fert_phase, wait_phase, harvest_phase }
+                    start_label   = string.format('Furrow loop start: %d furrow(s), plant -> fertilize -> wait -> harvest -> repeat',
+                                                  #initial)
+                else
+                    initial_chain = { wait_phase, harvest_phase }
+                    start_label   = string.format('Furrow loop start: %d furrow(s), plant -> wait -> harvest -> repeat',
+                                                  #initial)
+                end
             end
             begin_run(initial, start_label, true, initial_chain)
-            loop_template = { rest_phase, plant_phase, wait_phase, harvest_phase }
+            if USE_FERTILIZER then
+                loop_template = { rest_phase, plant_phase, fert_phase, wait_phase, harvest_phase }
+            else
+                loop_template = { rest_phase, plant_phase, wait_phase, harvest_phase }
+            end
         else
             chat('Usage: //bon furrow start [1|2] | stop | status')
         end
@@ -894,12 +939,17 @@ windower.register_event('addon command', function(cmd, ...)
             reset_all()
         end
 
+    elseif cmd == 'fertilize' or cmd == 'fert' then
+        USE_FERTILIZER = not USE_FERTILIZER
+        chat('Fertilizer (Miracle Mulch): ' .. (USE_FERTILIZER and 'ON' or 'OFF'))
+
     else
         chat('Commands:')
         chat('  all                              Run your customized //bon all order (see //bon list)')
         chat('  garden                           Run all 4 garden nodes (Mog Garden)')
         chat('  pet                              Pet all monsters in current zone (idx 0x8A-0x8D)')
         chat('  furrow start [1|2] | stop | status   Loop plant <-> harvest. 1=plant first (default), 2=harvest first')
+        chat('  fert                             Toggle Miracle Mulch fertilizing (default: OFF)')
         chat('  mine | dredger | grove | net     Run just one garden NPC')
         chat('  flotsam                          Interact with Flotsam')
         chat('  add | remove (mine|dredger|grove|net|flotsam|pet)   Customize //bon all order (per-character, saved)')
