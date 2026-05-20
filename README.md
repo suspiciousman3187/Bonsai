@@ -15,9 +15,13 @@ To operate Bonsai, use the command `//bonsai` (or `//bon` for short).
 - `//bon mine`, `//bon dredger`, `//bon grove`, `//bon net`, `//bon flotsam` run a single garden node.
 
 ### Furrows
-- `//bon furrow start [1|2]` begins the Furrow loop: plant a Revival Root in each Garden Furrow, wait one hour for them to grow, harvest, repeat. Optionally use `furrow start 1` to begin cycling by planting first and `furrow start 2` to begin by harvesting first.
+- `//bon furrow start [1|2] [fert]` begins the Furrow loop: plant a Revival Root in each Garden Furrow, wait for them to grow, harvest, repeat.
+  - `1` (default) = plant first, `2` = harvest first
+  - `fert` = use Miracle Mulch after planting (reduces wait from 61 min to 30 min)
+  - Examples: `//bon furrow start`, `//bon furrow start fert`, `//bon furrow start 2 fert`
 - `//bon furrow stop` stops the Furrow loop.
 - `//bon furrow status` shows how long until the planted furrows are ready, or what the loop is currently doing.
+- `//bon fert` toggles Miracle Mulch fertilizing on/off (default: OFF). When enabled, the loop becomes: plant -> fertilize -> wait 30 min -> harvest -> repeat.
 
 ### Monster Rearing
 - `//bon pet` pets every breeding monster in the rearing grounds. Please use this only in the Rearing Grounds part of the Mog Garden. If used in the main Mog Garden area, it will cancel.
